@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Vendor app binaries (not ours, do not publish)
+Keyboard-App/
+
+# Personal configuration backups (default name used by the app)
+backup-*.json

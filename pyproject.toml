@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cxkj-mini-keyboard"
+version = "0.1.0"
+description = "Configurator for the CXKJ MINI_KEYBOARD, an AliExpress 12-key + 3-knob Bluetooth macropad (USB 514C:8842)"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6-Essentials>=6.8",
+    "hidapi>=0.14",
+]
+
+[project.gui-scripts]
+cxkj-mini-keyboard = "cxkj_mini_keyboard.gui:main"
+
+[tool.setuptools]
+packages = ["cxkj_mini_keyboard"]
