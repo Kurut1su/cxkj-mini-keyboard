@@ -30,7 +30,7 @@ class Action:
     raw: bytes
 
     def describe(self) -> str:
-        return f"Tipo {self.raw[3]} (desconocido)"
+        return f"Type {self.raw[3]} (unknown)"
 
     def to_dict(self) -> dict:
         return {"type": "unknown", "record_type": self.raw[3]}
@@ -39,7 +39,7 @@ class Action:
 @dataclass
 class EmptyAction(Action):
     def describe(self) -> str:
-        return "Sin asignar"
+        return "Unassigned"
 
     def to_dict(self) -> dict:
         return {"type": "empty"}
@@ -83,14 +83,14 @@ class MouseAction(Action):
 
     def describe(self) -> str:
         parts = modifier_names(self.modifiers)
-        for bit, name in ((1, "Clic izquierdo"), (2, "Clic derecho"), (4, "Clic central")):
+        for bit, name in ((1, "Left click"), (2, "Right click"), (4, "Middle click")):
             if self.buttons & bit:
                 parts.append(name)
         if self.wheel:
-            parts.append("Rueda arriba" if self.wheel > 0 else "Rueda abajo")
+            parts.append("Wheel up" if self.wheel > 0 else "Wheel down")
         if self.x or self.y:
-            parts.append(f"Mover ({self.x:+d}, {self.y:+d})")
-        return "+".join(parts) or "Ratón (nada)"
+            parts.append(f"Move ({self.x:+d}, {self.y:+d})")
+        return "+".join(parts) or "Mouse (nothing)"
 
     def to_dict(self) -> dict:
         return {"type": "mouse", "modifiers": modifier_names(self.modifiers),

@@ -39,13 +39,13 @@ class MainWindow(QMainWindow):
         self.slot_titles: dict[int, str] = {}  # position -> title
         self.backup_dir = Path(QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)) / "backups"
 
-        read_btn = QPushButton("Leer del teclado")
+        read_btn = QPushButton("Read from keyboard")
         read_btn.clicked.connect(lambda: self.read_device())
         self.write_btn = QPushButton()
         self.write_btn.clicked.connect(self.write_device)
-        self.save_btn = QPushButton("Guardar copia…")
+        self.save_btn = QPushButton("Save backup…")
         self.save_btn.clicked.connect(self.save_backup)
-        self.restore_btn = QPushButton("Restaurar copia…")
+        self.restore_btn = QPushButton("Restore backup…")
         self.restore_btn.clicked.connect(self.restore_backup)
         self.status = QLabel()
 
@@ -70,10 +70,10 @@ class MainWindow(QMainWindow):
         self.slots = QButtonGroup(self)
         self.slots.idClicked.connect(lambda _: self.show_detail())
 
-        keys_box = QGroupBox("Teclas")
+        keys_box = QGroupBox("Keys")
         keys_grid = QGridLayout(keys_box)
         for position in KEY_POSITIONS:
-            self.slot_titles[position] = f"Tecla {position + 1}"
+            self.slot_titles[position] = f"Key {position + 1}"
             btn = self._slot_button(position, min_height=70)
             keys_grid.addWidget(btn, position // KEY_COLUMNS, position % KEY_COLUMNS)
         for col in range(KEY_COLUMNS):
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         for knob in KNOBS:
             box = QGroupBox(knob.name)
             row = QHBoxLayout(box)
-            for position, label in ((knob.left, "⟲ Izquierda"), (knob.press, "Pulsar"), (knob.right, "Derecha ⟳")):
+            for position, label in ((knob.left, "⟲ Left"), (knob.press, "Press"), (knob.right, "Right ⟳")):
                 self.slot_titles[position] = f"{knob.name}: {label}"
                 row.addWidget(self._slot_button(position, min_height=50), 1)
             knobs_col.addWidget(box)
@@ -92,12 +92,12 @@ class MainWindow(QMainWindow):
         body.addWidget(keys_box, 3)
         body.addLayout(knobs_col, 2)
 
-        self.detail = QLabel("Selecciona una tecla o una acción de rueda.")
+        self.detail = QLabel("Select a key or a knob action.")
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.detail.setWordWrap(True)
-        self.edit_btn = QPushButton("Editar…")
+        self.edit_btn = QPushButton("Edit…")
         self.edit_btn.clicked.connect(self.edit_slot)
-        self.revert_btn = QPushButton("Descartar cambio")
+        self.revert_btn = QPushButton("Discard change")
         self.revert_btn.clicked.connect(self.revert_slot)
         detail_row = QHBoxLayout()
         detail_row.addWidget(self.detail, 1)
@@ -160,8 +160,8 @@ class MainWindow(QMainWindow):
         if not self.pending:
             return True
         answer = QMessageBox.question(
-            self, APP_NAME, f"Hay {_count(self.pending)} cambios sin escribir en el teclado. "
-                            f"{what} los descartará. ¿Continuar?")
+            self, APP_NAME, f"There are {_count(self.pending)} changes not written to the keyboard. "
+                            f"{what} will discard them. Continue?")
         return answer == QMessageBox.Yes
 
     # --- device ------------------------------------------------------------------------------
@@ -169,14 +169,14 @@ class MainWindow(QMainWindow):
     def open_device(self, quiet: bool = False) -> Macropad | None:
         devices = find_devices()
         if not devices:
-            self.status.setText("Teclado no encontrado. ¿Está conectado por cable?")
+            self.status.setText("Keyboard not found. Is it connected with a USB cable?")
             if not quiet:
-                QMessageBox.warning(self, APP_NAME, "No se encuentra el teclado. Conéctalo por cable USB.")
+                QMessageBox.warning(self, APP_NAME, "Keyboard not found. Connect it with a USB cable.")
             return None
         return Macropad(devices[0])
 
     def read_device(self, quiet: bool = False) -> None:
-        if not self.confirm_discard("Leer del teclado"):
+        if not self.confirm_discard("Reading the keyboard"):
             return
         pad = self.open_device(quiet)
         if not pad:
@@ -186,14 +186,14 @@ class MainWindow(QMainWindow):
             with pad:
                 self.config = read_config(pad)
         except (MacropadError, OSError) as e:
-            self.status.setText("Error al leer el teclado.")
-            QMessageBox.critical(self, APP_NAME, f"Error al leer el teclado:\n{e}")
+            self.status.setText("Error reading the keyboard.")
+            QMessageBox.critical(self, APP_NAME, f"Error reading the keyboard:\n{e}")
             return
         finally:
             QApplication.restoreOverrideCursor()
         self.pending = {}
         c = self.config
-        self.status.setText(f"Leído: {c.keys} teclas, {c.knobs} ruedas "
+        self.status.setText(f"Read: {c.keys} keys, {c.knobs} knobs "
                             f"(VID {c.vendor_id:04X}, PID {c.product_id:04X})")
         self.refresh()
 
@@ -202,8 +202,8 @@ class MainWindow(QMainWindow):
             return
         layers = ", ".join(str(layer) for layer in sorted(self.pending))
         answer = QMessageBox.question(
-            self, APP_NAME, f"Se escribirán {_count(self.pending)} cambios en el teclado (capas {layers}).\n"
-                            f"Antes se guarda una copia automática en:\n{self.backup_dir}\n\n¿Continuar?")
+            self, APP_NAME, f"{_count(self.pending)} changes will be written to the keyboard (layers {layers}).\n"
+                            f"An automatic backup is saved first, to:\n{self.backup_dir}\n\nContinue?")
         if answer != QMessageBox.Yes:
             return
         pad = self.open_device()
@@ -214,16 +214,16 @@ class MainWindow(QMainWindow):
             with pad:
                 current = read_config(pad)
                 if (current.keys, current.knobs) != (self.config.keys, self.config.knobs):
-                    raise MacropadError("el teclado conectado no es el que se leyó")
+                    raise MacropadError("the connected keyboard is not the one that was read")
                 self.backup_dir.mkdir(parents=True, exist_ok=True)
                 backup = backup_path(self.backup_dir)
                 current.save(backup)
                 after, failed = write_changes(pad, self.pending)
         except (MacropadError, OSError, ValueError) as e:
-            self.status.setText("Error al escribir en el teclado.")
-            QMessageBox.critical(self, APP_NAME, f"Error al escribir en el teclado:\n{e}\n\n"
-                                                 f"Los cambios siguen pendientes. Vuelve a leer el teclado "
-                                                 f"para ver su estado real.")
+            self.status.setText("Error writing to the keyboard.")
+            QMessageBox.critical(self, APP_NAME, f"Error writing to the keyboard:\n{e}\n\n"
+                                                 f"The changes are still pending. Read the keyboard again "
+                                                 f"to see its actual state.")
             return
         finally:
             QApplication.restoreOverrideCursor()
@@ -232,13 +232,13 @@ class MainWindow(QMainWindow):
         self.pending = failed
         self.refresh()
         if failed:
-            slots = ", ".join(f"capa {layer} {self.title(layer, key_id)}"
+            slots = ", ".join(f"layer {layer} {self.title(layer, key_id)}"
                               for layer, records in sorted(failed.items()) for key_id in sorted(records))
-            self.status.setText("Escritura incompleta.")
-            QMessageBox.critical(self, APP_NAME, f"Al releer, estos cambios no coinciden con lo escrito "
-                                                 f"y siguen pendientes:\n{slots}\n\nCopia previa: {backup}")
+            self.status.setText("Write incomplete.")
+            QMessageBox.critical(self, APP_NAME, f"Reading back, these changes do not match what was written "
+                                                 f"and are still pending:\n{slots}\n\nPrevious backup: {backup}")
         else:
-            self.status.setText(f"Escritos y verificados {written} cambios. Copia previa: {backup.name}")
+            self.status.setText(f"Wrote and verified {written} changes. Previous backup: {backup.name}")
 
     # --- view --------------------------------------------------------------------------------
 
@@ -249,7 +249,7 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         for layer in LAYERS:
             mark = " •" if layer in self.pending else ""
-            self.layer_group.button(layer).setText(f"Capa {layer}{mark}")
+            self.layer_group.button(layer).setText(f"Layer {layer}{mark}")
         for position, title in self.slot_titles.items():
             btn = self.slots.button(position)
             key_id = self.id_at(position)
@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
             btn.setToolTip(text)
             btn.setStyleSheet(PENDING_STYLE if self.is_pending(self.layer, key_id) else "")
         n = _count(self.pending)
-        self.write_btn.setText(f"Escribir en el teclado ({n})" if n else "Escribir en el teclado")
+        self.write_btn.setText(f"Write to keyboard ({n})" if n else "Write to keyboard")
         self.write_btn.setEnabled(bool(n))
         self.save_btn.setEnabled(self.config is not None)
         self.restore_btn.setEnabled(self.config is not None)
@@ -275,10 +275,10 @@ class MainWindow(QMainWindow):
             return
         record = self.record(self.layer, key_id) if key_id is not None else None
         if record is None:
-            self.detail.setText(f"{self.slot_titles[position]} · capa {self.layer}: sin datos")
+            self.detail.setText(f"{self.slot_titles[position]} · layer {self.layer}: no data")
             return
-        state = " · <b>pendiente de escribir</b>" if self.is_pending(self.layer, key_id) else ""
-        self.detail.setText(f"<b>{self.slot_titles[position]}</b> · capa {self.layer} · ID {key_id} · "
+        state = " · <b>pending write</b>" if self.is_pending(self.layer, key_id) else ""
+        self.detail.setText(f"<b>{self.slot_titles[position]}</b> · layer {self.layer} · ID {key_id} · "
                             f"{decode(record).describe()}{state}<br><tt>{record.hex(' ')}</tt>")
 
     # --- editing -----------------------------------------------------------------------------
@@ -289,14 +289,14 @@ class MainWindow(QMainWindow):
         if key_id is None:
             return
         record = self.record(self.layer, key_id)
-        title = f"{self.slot_titles[position]} · capa {self.layer}"
+        title = f"{self.slot_titles[position]} · layer {self.layer}"
         dialog = ActionDialog(title, decode(record) if record else None, self)
         if dialog.exec() != ActionDialog.Accepted:
             return
         try:
             new = encode(dialog.result_action, key_id, self.layer)
         except ValueError as e:
-            QMessageBox.warning(self, APP_NAME, f"No se puede guardar esta acción:\n{e}")
+            QMessageBox.warning(self, APP_NAME, f"This action cannot be saved:\n{e}")
             return
         self.set_pending(self.layer, key_id, new)
 
@@ -311,35 +311,35 @@ class MainWindow(QMainWindow):
     def save_backup(self) -> None:
         if not self.config:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar copia (lo leído del teclado)",
+        path, _ = QFileDialog.getSaveFileName(self, "Save backup (what was read from the keyboard)",
                                               backup_path(Path()).name, "JSON (*.json)")
         if path:
             self.config.save(Path(path))
-            self.status.setText(f"Copia guardada en {path}")
+            self.status.setText(f"Backup saved to {path}")
 
     def restore_backup(self) -> None:
-        if not self.config or not self.confirm_discard("Restaurar una copia"):
+        if not self.config or not self.confirm_discard("Restoring a backup"):
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Restaurar copia", str(self.backup_dir), "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "Restore backup", str(self.backup_dir), "JSON (*.json)")
         if not path:
             return
         try:
             backup = Config.load(Path(path))
         except (OSError, ValueError, KeyError) as e:
-            QMessageBox.critical(self, APP_NAME, f"No se puede leer la copia:\n{e}")
+            QMessageBox.critical(self, APP_NAME, f"Cannot read the backup:\n{e}")
             return
         if (backup.keys, backup.knobs) != (self.config.keys, self.config.knobs):
-            QMessageBox.critical(self, APP_NAME, f"La copia es de un modelo distinto "
-                                                 f"({backup.keys} teclas, {backup.knobs} ruedas).")
+            QMessageBox.critical(self, APP_NAME, f"The backup is from a different model "
+                                                 f"({backup.keys} keys, {backup.knobs} knobs).")
             return
         self.pending = self.config.differences(backup)
         self.refresh()
         n = _count(self.pending)
-        self.status.setText(f"Copia cargada: {n} cambios pendientes. Revísalos y pulsa «Escribir»."
-                            if n else "La copia es igual a lo que hay en el teclado.")
+        self.status.setText(f"Backup loaded: {n} pending changes. Review them and click “Write to keyboard”."
+                            if n else "The backup matches what is on the keyboard.")
 
     def closeEvent(self, e) -> None:
-        if self.confirm_discard("Cerrar"):
+        if self.confirm_discard("Closing"):
             e.accept()
         else:
             e.ignore()

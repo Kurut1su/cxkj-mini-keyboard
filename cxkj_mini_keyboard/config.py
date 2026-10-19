@@ -63,7 +63,7 @@ class Config:
         """
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("format") != FORMAT_VERSION:
-            raise ValueError(f"formato de copia no soportado: {data.get('format')}")
+            raise ValueError(f"unsupported backup format: {data.get('format')}")
         dev = data["device"]
         config = cls(int(dev["vendor_id"], 16), int(dev["product_id"], 16), dev["keys"], dev["knobs"])
         for layer, records in data["layers"].items():
@@ -71,7 +71,7 @@ class Config:
             for key_id, entry in records.items():
                 record = bytes.fromhex(entry["raw"])
                 if len(record) != RECORD_SIZE or record[1] != int(key_id) or record[2] != int(layer):
-                    raise ValueError(f"registro no válido en la capa {layer}, id {key_id}")
+                    raise ValueError(f"invalid record in layer {layer}, id {key_id}")
                 config.layers[int(layer)][int(key_id)] = record
         return config
 

@@ -10,9 +10,9 @@ A replacement configurator for the **CXKJ MINI_KEYBOARD**, an AliExpress Bluetoo
   them in a GUI and saves a JSON backup.
 - **Writing works** (`03 FD …` + `03 FD FE FF`), tested with a single-key record and persistent
   across unplugging. `Macropad.write_record` and `Macropad.commit` in `device.py`.
-- **GUI editing** implemented on 2026-10-19: per-slot editor, pending changes, "Escribir" (auto
+- **GUI editing** implemented on 2026-10-19: per-slot editor, pending changes, "Write to keyboard" (auto
   backup to `%LOCALAPPDATA%\cxkj-mini-keyboard\backups`, one commit per layer, read back to
-  verify) and "Restaurar copia…". Tested on the keyboard: single keys, a macro,
+  verify) and "Restore backup…". Tested on the keyboard: single keys, a macro,
   media, mouse wheel and restoring a backup.
 
 ## Stack and environment
@@ -69,8 +69,8 @@ HID interface 0 (usage page `0xFF00`). Output reports of 65 bytes (`03` + 64 byt
 
 ## Conventions
 
-- **Code and documentation** (identifiers, comments, docstrings, commits, `.md` files) in
-  **English**.
+- **Code, user interface and documentation** (identifiers, UI text, comments, docstrings,
+  commits, `.md` files) in **English**.
 - **Dependencies:** venv + pip, not uv. `requirements.txt` with exact versions and SHA-256 hashes.
   `pyproject.toml` uses flexible ranges.
 - Do not pin versions published less than two weeks ago.
