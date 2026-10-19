@@ -1,17 +1,22 @@
 """HID transport for the macropad's configuration interface.
 
-Only read-only commands are implemented for now:
+Commands:
     03 FB FB FB              -> identify, reply 03 FB <keys> <knobs>
     03 FA <keys> <knobs> <L> -> read layer L, one reply per key / knob action
+    03 <record>              -> write one key / knob action (record[0] is FD)
+    03 FD FE FF              -> commit: save the written records to the keyboard's storage
+
+Never send 03 FC (changes the model) or 03 EF (bootloader).
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import hid
 
-from .actions import RECORD_SIZE
+from .actions import RECORD_MARKER, RECORD_SIZE
 
 VENDOR_IDS = (0x514C, 0x1189)
 PRODUCT_IDS = (0x8842, 0x8840, 0x8830, 0x8831, 0x8832, 0x8833, 0x8850)
@@ -20,6 +25,9 @@ REPORT_ID = 0x03
 PACKET_SIZE = 65  # report id + 64 bytes
 LAYERS = (1, 2, 3)
 FIRST_KNOB_ID = 16
+COMMIT = (0xFD, 0xFE, 0xFF)
+COMMIT_DELAY_S = 0.2  # the vendor app waits 200 ms after each commit
+REPLY_WAIT_MS = 50
 
 
 class MacropadError(Exception):
@@ -68,9 +76,12 @@ class Macropad:
     def _read(self, timeout_ms: int = 1000) -> bytes:
         return bytes(self._dev.read(64, timeout_ms))
 
-    def _drain(self) -> None:
-        while self._read(50):
-            pass
+    def _drain(self) -> list[bytes]:
+        """Discard pending input. Returns what was discarded, for diagnostics."""
+        replies = []
+        while reply := self._read(REPLY_WAIT_MS):
+            replies.append(reply)
+        return replies
 
     def identify(self) -> tuple[int, int]:
         """Return (number of keys, number of knobs)."""
@@ -97,3 +108,24 @@ class Macropad:
             record = (b"\xfd" + reply[2:2 + RECORD_SIZE - 1]).ljust(RECORD_SIZE, b"\0")
             records[record[1]] = record
         return records
+
+    def write_record(self, record: bytes, keys: int, knobs: int) -> list[bytes]:
+        """Send one key / knob record. It is not saved until commit().
+
+        Returns any replies the keyboard sent (none are expected).
+        """
+        valid_ids = set(range(1, keys + 1)) | set(range(FIRST_KNOB_ID, FIRST_KNOB_ID + 3 * knobs))
+        if len(record) != RECORD_SIZE:
+            raise ValueError(f"record must be {RECORD_SIZE} bytes, got {len(record)}")
+        # These checks also keep a record from ever looking like the commit packet.
+        if record[0] != RECORD_MARKER or record[1] not in valid_ids or record[2] not in LAYERS:
+            raise ValueError(f"refusing to write a malformed record: {record[:4].hex(' ')}")
+        self._drain()
+        self._send(*record)
+        return self._drain()
+
+    def commit(self) -> list[bytes]:
+        """Save the records written since the last commit. Returns any replies."""
+        self._send(*COMMIT)
+        time.sleep(COMMIT_DELAY_S)
+        return self._drain()

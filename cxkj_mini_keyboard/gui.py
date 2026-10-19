@@ -1,26 +1,32 @@
-"""Main window: shows the configuration read from the macropad (read-only for now)."""
+"""Main window: shows the configuration read from the macropad, edits it and writes it back."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from . import APP_NAME
-from .config import Config, read_config
+from .actions import decode, encode
+from .config import Config, Records, backup_path, read_config, write_changes
 from .device import LAYERS, Macropad, MacropadError, find_devices
-from .layout import KEY_COLUMNS, KEY_IDS, KNOBS
+from .editor import ActionDialog
+from .layout import KEY_COLUMNS, KEY_POSITIONS, KNOBS
 
 MAX_LABEL = 24
+PENDING_STYLE = "font-weight: bold; color: #c05800;"
 
 
 def _short(text: str) -> str:
     return text if len(text) <= MAX_LABEL else text[:MAX_LABEL - 1] + "…"
+
+
+def _count(records: Records) -> int:
+    return sum(len(r) for r in records.values())
 
 
 class MainWindow(QMainWindow):
@@ -28,25 +34,30 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.config: Config | None = None
+        self.pending: Records = {}  # edited records not yet written: layer -> id -> record
         self.layer = LAYERS[0]
-        self.slot_titles: dict[int, str] = {}
+        self.slot_titles: dict[int, str] = {}  # position -> title
+        self.backup_dir = Path(QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)) / "backups"
 
         read_btn = QPushButton("Leer del teclado")
         read_btn.clicked.connect(lambda: self.read_device())
+        self.write_btn = QPushButton()
+        self.write_btn.clicked.connect(self.write_device)
         self.save_btn = QPushButton("Guardar copia…")
-        self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_backup)
+        self.restore_btn = QPushButton("Restaurar copia…")
+        self.restore_btn.clicked.connect(self.restore_backup)
         self.status = QLabel()
 
         top = QHBoxLayout()
-        top.addWidget(read_btn)
-        top.addWidget(self.save_btn)
+        for btn in (read_btn, self.write_btn, self.save_btn, self.restore_btn):
+            top.addWidget(btn)
         top.addWidget(self.status, 1)
 
         self.layer_group = QButtonGroup(self)
         layers_row = QHBoxLayout()
         for layer in LAYERS:
-            btn = QPushButton(f"Capa {layer}")
+            btn = QPushButton()
             btn.setCheckable(True)
             btn.setChecked(layer == self.layer)
             self.layer_group.addButton(btn, layer)
@@ -54,16 +65,17 @@ class MainWindow(QMainWindow):
         layers_row.addStretch()
         self.layer_group.idClicked.connect(self.set_layer)
 
-        # Every key and knob action is a checkable button; its group id is the record id.
+        # Every key and knob action is a checkable button; its group id is the physical position.
+        # The record id at that position depends on the layer (see layout.py).
         self.slots = QButtonGroup(self)
         self.slots.idClicked.connect(lambda _: self.show_detail())
 
         keys_box = QGroupBox("Teclas")
         keys_grid = QGridLayout(keys_box)
-        for i, key_id in enumerate(KEY_IDS):
-            self.slot_titles[key_id] = f"Tecla {key_id}"
-            btn = self._slot_button(key_id, min_height=70)
-            keys_grid.addWidget(btn, i // KEY_COLUMNS, i % KEY_COLUMNS)
+        for position in KEY_POSITIONS:
+            self.slot_titles[position] = f"Tecla {position + 1}"
+            btn = self._slot_button(position, min_height=70)
+            keys_grid.addWidget(btn, position // KEY_COLUMNS, position % KEY_COLUMNS)
         for col in range(KEY_COLUMNS):
             keys_grid.setColumnStretch(col, 1)
 
@@ -71,9 +83,9 @@ class MainWindow(QMainWindow):
         for knob in KNOBS:
             box = QGroupBox(knob.name)
             row = QHBoxLayout(box)
-            for key_id, label in ((knob.left, "⟲ Izquierda"), (knob.press, "Pulsar"), (knob.right, "Derecha ⟳")):
-                self.slot_titles[key_id] = f"{knob.name}: {label}"
-                row.addWidget(self._slot_button(key_id, min_height=50), 1)
+            for position, label in ((knob.left, "⟲ Izquierda"), (knob.press, "Pulsar"), (knob.right, "Derecha ⟳")):
+                self.slot_titles[position] = f"{knob.name}: {label}"
+                row.addWidget(self._slot_button(position, min_height=50), 1)
             knobs_col.addWidget(box)
 
         body = QHBoxLayout()
@@ -83,38 +95,95 @@ class MainWindow(QMainWindow):
         self.detail = QLabel("Selecciona una tecla o una acción de rueda.")
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.detail.setWordWrap(True)
+        self.edit_btn = QPushButton("Editar…")
+        self.edit_btn.clicked.connect(self.edit_slot)
+        self.revert_btn = QPushButton("Descartar cambio")
+        self.revert_btn.clicked.connect(self.revert_slot)
+        detail_row = QHBoxLayout()
+        detail_row.addWidget(self.detail, 1)
+        detail_row.addWidget(self.edit_btn)
+        detail_row.addWidget(self.revert_btn)
 
         root = QVBoxLayout()
         root.addLayout(top)
         root.addLayout(layers_row)
         root.addLayout(body, 1)
-        root.addWidget(self.detail)
+        root.addLayout(detail_row)
         central = QWidget()
         central.setLayout(root)
         self.setCentralWidget(central)
-        self.resize(1000, 560)
+        self.resize(1100, 600)
 
         self.refresh()
         QTimer.singleShot(0, lambda: self.read_device(quiet=True))
 
-    def _slot_button(self, key_id: int, min_height: int) -> QPushButton:
+    def _slot_button(self, position: int, min_height: int) -> QPushButton:
         btn = QPushButton()
         btn.setCheckable(True)
         btn.setMinimumHeight(min_height)
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.slots.addButton(btn, key_id)
+        self.slots.addButton(btn, position)
         return btn
 
-    def read_device(self, quiet: bool = False) -> None:
+    # --- state -------------------------------------------------------------------------------
+
+    def id_at(self, position: int) -> int | None:
+        """Record id of a physical position in the current layer."""
+        return self.config.id_at(self.layer, position) if self.config else None
+
+    def title(self, layer: int, key_id: int) -> str:
+        ids = list(self.config.layers.get(layer, {})) if self.config else []
+        return self.slot_titles[ids.index(key_id)] if key_id in ids else f"ID {key_id}"
+
+    def record(self, layer: int, key_id: int) -> bytes | None:
+        """The record shown for a slot: the pending edit if there is one, else the keyboard's."""
+        if key_id in self.pending.get(layer, {}):
+            return self.pending[layer][key_id]
+        return self.config.layers.get(layer, {}).get(key_id) if self.config else None
+
+    def is_pending(self, layer: int, key_id: int) -> bool:
+        return key_id in self.pending.get(layer, {})
+
+    def set_pending(self, layer: int, key_id: int, record: bytes | None) -> None:
+        """Set or (with None) drop the pending edit of a slot."""
+        layer_pending = self.pending.setdefault(layer, {})
+        original = self.config.layers.get(layer, {}).get(key_id)
+        if record is None or record == original:
+            layer_pending.pop(key_id, None)
+        else:
+            layer_pending[key_id] = record
+        if not layer_pending:
+            del self.pending[layer]
+        self.refresh()
+
+    def confirm_discard(self, what: str) -> bool:
+        if not self.pending:
+            return True
+        answer = QMessageBox.question(
+            self, APP_NAME, f"Hay {_count(self.pending)} cambios sin escribir en el teclado. "
+                            f"{what} los descartará. ¿Continuar?")
+        return answer == QMessageBox.Yes
+
+    # --- device ------------------------------------------------------------------------------
+
+    def open_device(self, quiet: bool = False) -> Macropad | None:
         devices = find_devices()
         if not devices:
             self.status.setText("Teclado no encontrado. ¿Está conectado por cable?")
             if not quiet:
-                QMessageBox.warning(self, APP_NAME, "No se encuentra el teclado.")
+                QMessageBox.warning(self, APP_NAME, "No se encuentra el teclado. Conéctalo por cable USB.")
+            return None
+        return Macropad(devices[0])
+
+    def read_device(self, quiet: bool = False) -> None:
+        if not self.confirm_discard("Leer del teclado"):
+            return
+        pad = self.open_device(quiet)
+        if not pad:
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            with Macropad(devices[0]) as pad:
+            with pad:
                 self.config = read_config(pad)
         except (MacropadError, OSError) as e:
             self.status.setText("Error al leer el teclado.")
@@ -122,50 +191,163 @@ class MainWindow(QMainWindow):
             return
         finally:
             QApplication.restoreOverrideCursor()
+        self.pending = {}
         c = self.config
         self.status.setText(f"Leído: {c.keys} teclas, {c.knobs} ruedas "
                             f"(VID {c.vendor_id:04X}, PID {c.product_id:04X})")
-        self.save_btn.setEnabled(True)
         self.refresh()
+
+    def write_device(self) -> None:
+        if not self.pending or not self.config:
+            return
+        layers = ", ".join(str(layer) for layer in sorted(self.pending))
+        answer = QMessageBox.question(
+            self, APP_NAME, f"Se escribirán {_count(self.pending)} cambios en el teclado (capas {layers}).\n"
+                            f"Antes se guarda una copia automática en:\n{self.backup_dir}\n\n¿Continuar?")
+        if answer != QMessageBox.Yes:
+            return
+        pad = self.open_device()
+        if not pad:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            with pad:
+                current = read_config(pad)
+                if (current.keys, current.knobs) != (self.config.keys, self.config.knobs):
+                    raise MacropadError("el teclado conectado no es el que se leyó")
+                self.backup_dir.mkdir(parents=True, exist_ok=True)
+                backup = backup_path(self.backup_dir)
+                current.save(backup)
+                after, failed = write_changes(pad, self.pending)
+        except (MacropadError, OSError, ValueError) as e:
+            self.status.setText("Error al escribir en el teclado.")
+            QMessageBox.critical(self, APP_NAME, f"Error al escribir en el teclado:\n{e}\n\n"
+                                                 f"Los cambios siguen pendientes. Vuelve a leer el teclado "
+                                                 f"para ver su estado real.")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        written = _count(self.pending)
+        self.config = after
+        self.pending = failed
+        self.refresh()
+        if failed:
+            slots = ", ".join(f"capa {layer} {self.title(layer, key_id)}"
+                              for layer, records in sorted(failed.items()) for key_id in sorted(records))
+            self.status.setText("Escritura incompleta.")
+            QMessageBox.critical(self, APP_NAME, f"Al releer, estos cambios no coinciden con lo escrito "
+                                                 f"y siguen pendientes:\n{slots}\n\nCopia previa: {backup}")
+        else:
+            self.status.setText(f"Escritos y verificados {written} cambios. Copia previa: {backup.name}")
+
+    # --- view --------------------------------------------------------------------------------
 
     def set_layer(self, layer: int) -> None:
         self.layer = layer
         self.refresh()
 
     def refresh(self) -> None:
-        for key_id, title in self.slot_titles.items():
-            btn = self.slots.button(key_id)
-            action = self.config.action(self.layer, key_id) if self.config else None
-            text = action.describe() if action else "—"
-            short_title = f"Tecla {key_id}" if key_id in KEY_IDS else title.split(": ")[1]
+        for layer in LAYERS:
+            mark = " •" if layer in self.pending else ""
+            self.layer_group.button(layer).setText(f"Capa {layer}{mark}")
+        for position, title in self.slot_titles.items():
+            btn = self.slots.button(position)
+            key_id = self.id_at(position)
+            record = self.record(self.layer, key_id) if key_id is not None else None
+            text = decode(record).describe() if record else "—"
+            short_title = title.split(": ")[-1]
             btn.setText(f"{short_title}\n{_short(text)}")
             btn.setToolTip(text)
+            btn.setStyleSheet(PENDING_STYLE if self.is_pending(self.layer, key_id) else "")
+        n = _count(self.pending)
+        self.write_btn.setText(f"Escribir en el teclado ({n})" if n else "Escribir en el teclado")
+        self.write_btn.setEnabled(bool(n))
+        self.save_btn.setEnabled(self.config is not None)
+        self.restore_btn.setEnabled(self.config is not None)
         self.show_detail()
 
     def show_detail(self) -> None:
-        key_id = self.slots.checkedId()
-        if key_id < 0:
+        position = self.slots.checkedId()
+        key_id = self.id_at(position) if position >= 0 else None
+        self.edit_btn.setEnabled(key_id is not None)
+        self.revert_btn.setEnabled(key_id is not None and self.is_pending(self.layer, key_id))
+        if position < 0:
             return
-        record = self.config.layers.get(self.layer, {}).get(key_id) if self.config else None
+        record = self.record(self.layer, key_id) if key_id is not None else None
         if record is None:
-            self.detail.setText(f"{self.slot_titles[key_id]} · capa {self.layer}: sin datos")
+            self.detail.setText(f"{self.slot_titles[position]} · capa {self.layer}: sin datos")
             return
-        action = self.config.action(self.layer, key_id)
-        self.detail.setText(f"<b>{self.slot_titles[key_id]}</b> · capa {self.layer} · "
-                            f"{action.describe()}<br><tt>{record.hex(' ')}</tt>")
+        state = " · <b>pendiente de escribir</b>" if self.is_pending(self.layer, key_id) else ""
+        self.detail.setText(f"<b>{self.slot_titles[position]}</b> · capa {self.layer} · ID {key_id} · "
+                            f"{decode(record).describe()}{state}<br><tt>{record.hex(' ')}</tt>")
+
+    # --- editing -----------------------------------------------------------------------------
+
+    def edit_slot(self) -> None:
+        position = self.slots.checkedId()
+        key_id = self.id_at(position) if position >= 0 else None
+        if key_id is None:
+            return
+        record = self.record(self.layer, key_id)
+        title = f"{self.slot_titles[position]} · capa {self.layer}"
+        dialog = ActionDialog(title, decode(record) if record else None, self)
+        if dialog.exec() != ActionDialog.Accepted:
+            return
+        try:
+            new = encode(dialog.result_action, key_id, self.layer)
+        except ValueError as e:
+            QMessageBox.warning(self, APP_NAME, f"No se puede guardar esta acción:\n{e}")
+            return
+        self.set_pending(self.layer, key_id, new)
+
+    def revert_slot(self) -> None:
+        position = self.slots.checkedId()
+        key_id = self.id_at(position) if position >= 0 else None
+        if key_id is not None:
+            self.set_pending(self.layer, key_id, None)
+
+    # --- backups -----------------------------------------------------------------------------
 
     def save_backup(self) -> None:
         if not self.config:
             return
-        default = f"backup-{datetime.now():%Y%m%d-%H%M%S}.json"
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar copia", default, "JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar copia (lo leído del teclado)",
+                                              backup_path(Path()).name, "JSON (*.json)")
         if path:
             self.config.save(Path(path))
             self.status.setText(f"Copia guardada en {path}")
 
+    def restore_backup(self) -> None:
+        if not self.config or not self.confirm_discard("Restaurar una copia"):
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Restaurar copia", str(self.backup_dir), "JSON (*.json)")
+        if not path:
+            return
+        try:
+            backup = Config.load(Path(path))
+        except (OSError, ValueError, KeyError) as e:
+            QMessageBox.critical(self, APP_NAME, f"No se puede leer la copia:\n{e}")
+            return
+        if (backup.keys, backup.knobs) != (self.config.keys, self.config.knobs):
+            QMessageBox.critical(self, APP_NAME, f"La copia es de un modelo distinto "
+                                                 f"({backup.keys} teclas, {backup.knobs} ruedas).")
+            return
+        self.pending = self.config.differences(backup)
+        self.refresh()
+        n = _count(self.pending)
+        self.status.setText(f"Copia cargada: {n} cambios pendientes. Revísalos y pulsa «Escribir»."
+                            if n else "La copia es igual a lo que hay en el teclado.")
+
+    def closeEvent(self, e) -> None:
+        if self.confirm_discard("Cerrar"):
+            e.accept()
+        else:
+            e.ignore()
+
 
 def main() -> int:
     app = QApplication([])
+    app.setApplicationName("cxkj-mini-keyboard")
     window = MainWindow()
     window.show()
     return app.exec()
