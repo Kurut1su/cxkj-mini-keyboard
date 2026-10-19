@@ -1,25 +1,30 @@
 """Physical layout of the 12-key + 3-knob model.
 
-Knob action ids were measured on the real device: the top knob's encoder is reversed,
-so its "turn right" is the first id of its group while the other two knobs start with "left".
+A physical action is identified by its **position** in the list of records a layer read
+returns, not by the record id (byte 1). The id only says which stored record a write
+overwrites, in place. The ids of the knob actions come in a different order in each layer
+(for example 18, 17, 16 or 16, 17, 18 for the top knob), so a fixed id -> direction table
+is wrong. Tested on 2026-10-19 on layers 1 and 3.
+
+Positions: keys 0..11 (row-major, 4 columns), then for each knob, top to bottom:
+turn left, press, turn right.
 """
 
 from dataclasses import dataclass
 
 KEY_COLUMNS = 4
-KEY_IDS = list(range(1, 13))
+KEY_POSITIONS = list(range(12))
 
 
 @dataclass(frozen=True)
 class Knob:
     name: str
-    left: int
+    left: int  # positions
     press: int
     right: int
 
 
 KNOBS = [
-    Knob("Rueda de arriba", left=18, press=17, right=16),
-    Knob("Rueda del medio", left=19, press=20, right=21),
-    Knob("Rueda grande", left=22, press=23, right=24),
+    Knob(name, left=12 + 3 * i, press=13 + 3 * i, right=14 + 3 * i)
+    for i, name in enumerate(("Rueda de arriba", "Rueda del medio", "Rueda grande"))
 ]
