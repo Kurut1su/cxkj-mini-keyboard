@@ -6,8 +6,5 @@ __pycache__/
 build/
 dist/
 
-# Vendor app binaries (not ours, do not publish)
-Keyboard-App/
-
 # Personal configuration backups (default name used by the app)
 backup-*.json
