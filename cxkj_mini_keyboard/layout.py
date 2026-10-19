@@ -26,5 +26,5 @@ class Knob:
 
 KNOBS = [
     Knob(name, left=12 + 3 * i, press=13 + 3 * i, right=14 + 3 * i)
-    for i, name in enumerate(("Rueda de arriba", "Rueda del medio", "Rueda grande"))
+    for i, name in enumerate(("Top knob", "Middle knob", "Large knob"))
 ]

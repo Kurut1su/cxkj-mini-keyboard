@@ -71,7 +71,7 @@ class Macropad:
     def _send(self, *payload: int) -> None:
         packet = bytes((REPORT_ID, *payload)).ljust(PACKET_SIZE, b"\0")
         if self._dev.write(packet) != PACKET_SIZE:
-            raise MacropadError("no se pudo escribir en el teclado")
+            raise MacropadError("could not write to the keyboard")
 
     def _read(self, timeout_ms: int = 1000) -> bytes:
         return bytes(self._dev.read(64, timeout_ms))
@@ -89,7 +89,7 @@ class Macropad:
         self._send(0xFB, 0xFB, 0xFB)
         reply = self._read()
         if len(reply) < 4 or reply[:2] != bytes((REPORT_ID, 0xFB)):
-            raise MacropadError(f"respuesta inesperada al identificar: {reply.hex(' ')}")
+            raise MacropadError(f"unexpected reply to identify: {reply.hex(' ')}")
         return reply[2], reply[3]
 
     def read_layer(self, layer: int, keys: int, knobs: int) -> dict[int, bytes]:
@@ -101,7 +101,7 @@ class Macropad:
         while len(records) < expected:
             reply = self._read()
             if not reply:
-                raise MacropadError(f"capa {layer}: recibidos {len(records)} de {expected} registros")
+                raise MacropadError(f"layer {layer}: received {len(records)} of {expected} records")
             if reply[:2] != bytes((REPORT_ID, 0xFA)):
                 continue
             # reply = 03 FA record[1..]; record[0] is always FD for keys.

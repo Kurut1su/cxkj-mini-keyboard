@@ -33,27 +33,27 @@ KEYCODES.update({0x59 + i: f"Num{i + 1}" for i in range(9)})
 
 # Consumer page (0x0C) usages offered by the vendor app.
 CONSUMER: dict[int, str] = {
-    0x00CD: "Play/Pausa",
+    0x00CD: "Play/Pause",
     0x00B7: "Stop",
-    0x00B6: "Pista anterior",
-    0x00B5: "Pista siguiente",
-    0x00E2: "Silencio",
-    0x00E9: "Volumen +",
-    0x00EA: "Volumen −",
-    0x006F: "Brillo +",
-    0x0070: "Brillo −",
-    0x0152: "Graves +",
-    0x0153: "Graves −",
-    0x0154: "Agudos +",
-    0x0155: "Agudos −",
-    0x0183: "Reproductor multimedia",
-    0x018A: "Correo",
-    0x0192: "Calculadora",
-    0x0194: "Mi PC",
-    0x0223: "Navegador: inicio",
-    0x0224: "Navegador: atrás",
-    0x0225: "Navegador: adelante",
-    0x0227: "Navegador: recargar",
+    0x00B6: "Previous track",
+    0x00B5: "Next track",
+    0x00E2: "Mute",
+    0x00E9: "Volume +",
+    0x00EA: "Volume −",
+    0x006F: "Brightness +",
+    0x0070: "Brightness −",
+    0x0152: "Bass +",
+    0x0153: "Bass −",
+    0x0154: "Treble +",
+    0x0155: "Treble −",
+    0x0183: "Media player",
+    0x018A: "Mail",
+    0x0192: "Calculator",
+    0x0194: "My Computer",
+    0x0223: "Browser: home",
+    0x0224: "Browser: back",
+    0x0225: "Browser: forward",
+    0x0227: "Browser: refresh",
 }
 
 
@@ -69,8 +69,8 @@ def combo_name(mods: int, code: int) -> str:
     parts = modifier_names(mods)
     if code:
         parts.append(key_name(code))
-    return "+".join(parts) or "(nada)"
+    return "+".join(parts) or "(nothing)"
 
 
 def consumer_name(usage: int) -> str:
-    return CONSUMER.get(usage, f"Multimedia 0x{usage:04X}")
+    return CONSUMER.get(usage, f"Media 0x{usage:04X}")

@@ -14,8 +14,8 @@ from .scancodes import MODIFIER_SCANCODES, SCANCODE_TO_HID
 
 # Left-hand modifiers offered as checkboxes; right-hand ones can still be captured.
 BASIC_MODIFIERS = MODIFIERS[:4]
-MOUSE_BUTTONS = [(0x01, "Izquierdo"), (0x02, "Derecho"), (0x04, "Central")]
-WHEEL_CHOICES = [(0, "Sin rueda"), (1, "Rueda arriba"), (-1, "Rueda abajo")]
+MOUSE_BUTTONS = [(0x01, "Left"), (0x02, "Right"), (0x04, "Middle")]
+WHEEL_CHOICES = [(0, "No wheel"), (1, "Wheel up"), (-1, "Wheel down")]
 
 
 class CaptureButton(QPushButton):
@@ -26,7 +26,7 @@ class CaptureButton(QPushButton):
     """
 
     captured = Signal(int, int)
-    IDLE_TEXT = "Capturar combinación"
+    IDLE_TEXT = "Capture combination"
 
     def __init__(self) -> None:
         super().__init__(self.IDLE_TEXT)
@@ -38,7 +38,7 @@ class CaptureButton(QPushButton):
     def start(self) -> None:
         self.capturing = True
         self.mods = 0
-        self.setText("Pulsa la combinación…")
+        self.setText("Press the combination…")
         self.setFocus()
 
     def stop(self) -> None:
@@ -65,7 +65,7 @@ class CaptureButton(QPushButton):
                 self.stop()
                 self.captured.emit(self.mods, SCANCODE_TO_HID[scancode])
             else:
-                self.setText(f"Tecla no reconocida (0x{scancode:X}); usa la lista")
+                self.setText(f"Unrecognized key (0x{scancode:X}); use the list")
         elif scancode in MODIFIER_SCANCODES and self.mods:
             self.stop()
             self.captured.emit(self.mods, 0)
@@ -98,13 +98,13 @@ class KeysTab(QWidget):
 
         capture = CaptureButton()
         capture.captured.connect(self.add_step)
-        remove = QPushButton("Quitar")
+        remove = QPushButton("Remove")
         remove.clicked.connect(lambda: self._take(self.steps.currentRow()))
-        up = QPushButton("Subir")
+        up = QPushButton("Move up")
         up.clicked.connect(lambda: self._move(-1))
-        down = QPushButton("Bajar")
+        down = QPushButton("Move down")
         down.clicked.connect(lambda: self._move(1))
-        clear = QPushButton("Vaciar")
+        clear = QPushButton("Clear")
         clear.clicked.connect(self.steps.clear)
         buttons = QHBoxLayout()
         for btn in (capture, remove, up, down, clear):
@@ -113,10 +113,10 @@ class KeysTab(QWidget):
 
         self.mods = ModifierChecks()
         self.key = QComboBox()
-        self.key.addItem("(solo modificadores)", 0)
+        self.key.addItem("(modifiers only)", 0)
         for code, name in sorted(KEYCODES.items()):
             self.key.addItem(name, code)
-        add = QPushButton("Añadir")
+        add = QPushButton("Add")
         add.setAutoDefault(False)
         add.clicked.connect(lambda: self.add_step(self.mods.value(), self.key.currentData()))
         manual = QHBoxLayout()
@@ -125,18 +125,18 @@ class KeysTab(QWidget):
         manual.addWidget(add)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Un paso es una combinación. Varios pasos forman una macro, que se "
-                                f"envía en orden (máximo {MAX_STEPS})."))
+        layout.addWidget(QLabel(f"Each step is one key combination. Several steps make a macro, "
+                                f"sent in order (up to {MAX_STEPS})."))
         layout.addWidget(self.steps, 1)
         layout.addLayout(buttons)
-        layout.addWidget(QLabel("O elige la tecla de la lista (para las que Windows no deja capturar):"))
+        layout.addWidget(QLabel("Or pick the key from the list (for keys that Windows does not let you capture):"))
         layout.addLayout(manual)
 
     def add_step(self, mods: int, code: int) -> None:
         if not mods and not code:
             return
         if self.steps.count() >= MAX_STEPS:
-            QMessageBox.warning(self, "Macro", f"Máximo {MAX_STEPS} pasos.")
+            QMessageBox.warning(self, "Macro", f"Up to {MAX_STEPS} steps.")
             return
         item = QListWidgetItem(combo_name(mods, code))
         item.setData(Qt.UserRole, (mods, code))
@@ -180,7 +180,7 @@ class MediaTab(QWidget):
                 self.list.setCurrentRow(i)
                 return
         # A code the list doesn't know: keep it selectable.
-        item = QListWidgetItem(f"Multimedia 0x{action.usage:04X}")
+        item = QListWidgetItem(f"Media 0x{action.usage:04X}")
         item.setData(Qt.UserRole, action.usage)
         self.list.addItem(item)
         self.list.setCurrentItem(item)
@@ -204,11 +204,11 @@ class MouseTab(QWidget):
         for _, box in self.buttons:
             buttons_row.addWidget(box)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Botones:"))
+        layout.addWidget(QLabel("Buttons:"))
         layout.addLayout(buttons_row)
-        layout.addWidget(QLabel("Rueda:"))
+        layout.addWidget(QLabel("Wheel:"))
         layout.addWidget(self.wheel)
-        layout.addWidget(QLabel("Modificadores (por ejemplo, Ctrl + rueda = zoom):"))
+        layout.addWidget(QLabel("Modifiers (for example, Ctrl + wheel = zoom):"))
         layout.addWidget(self.mods)
         layout.addStretch()
 
@@ -233,9 +233,9 @@ class ActionDialog(QDialog):
         self.setWindowTitle(title)
         self.keys, self.media, self.mouse = KeysTab(), MediaTab(), MouseTab()
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.keys, "Teclas")
-        self.tabs.addTab(self.media, "Multimedia")
-        self.tabs.addTab(self.mouse, "Ratón")
+        self.tabs.addTab(self.keys, "Keys")
+        self.tabs.addTab(self.media, "Media")
+        self.tabs.addTab(self.mouse, "Mouse")
         for tab, action_class in ((self.keys, KeyAction), (self.media, MediaAction), (self.mouse, MouseAction)):
             if isinstance(action, action_class):
                 tab.set_action(action)
@@ -253,7 +253,7 @@ class ActionDialog(QDialog):
     def accept(self) -> None:
         action = self.tabs.currentWidget().action()
         if action is None:
-            QMessageBox.warning(self, self.windowTitle(), "La acción está vacía.")
+            QMessageBox.warning(self, self.windowTitle(), "The action is empty.")
             return
         self.result_action = action
         super().accept()
